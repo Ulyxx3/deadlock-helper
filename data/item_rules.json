@@ -1,0 +1,208 @@
+{
+  "hero_threat_tags": {
+    "Abrams": ["lifesteal", "melee", "cc"],
+    "Bebop": ["spirit", "cc"],
+    "Billy": ["melee", "lifesteal"],
+    "Calico": ["melee", "spirit"],
+    "Celeste": ["spirit", "cc"],
+    "Dynamo": ["cc", "spirit"],
+    "Graves": ["spirit", "cc"],
+    "Grey Talon": ["spirit"],
+    "Haze": ["bullet_carry"],
+    "Holliday": ["bullet_carry", "cc"],
+    "Infernus": ["spirit", "lifesteal"],
+    "Ivy": ["cc", "lifesteal"],
+    "Kelvin": ["spirit", "lifesteal"],
+    "Lady Geist": ["spirit", "lifesteal"],
+    "Lash": ["spirit", "cc"],
+    "McGinnis": ["bullet_carry", "spirit"],
+    "Mina": ["spirit"],
+    "Mirage": ["bullet_carry"],
+    "Mo & Krill": ["cc", "lifesteal"],
+    "Paige": ["lifesteal", "spirit"],
+    "Paradox": ["spirit", "cc"],
+    "Pocket": ["spirit"],
+    "Rem": ["spirit", "cc"],
+    "Seven": ["spirit"],
+    "Shiv": ["lifesteal", "melee"],
+    "Sinclair": ["spirit", "cc"],
+    "The Doorman": ["spirit", "cc"],
+    "Venator": ["bullet_carry", "cc"],
+    "Victor": ["lifesteal", "melee"],
+    "Vindicta": ["bullet_carry"],
+    "Viscous": ["spirit", "cc"],
+    "Vyper": ["bullet_carry"],
+    "Warden": ["bullet_carry", "cc"],
+    "Wraith": ["bullet_carry", "spirit"],
+    "Yamato": ["spirit", "melee"]
+  },
+  "key_power_spike_items": {
+    "Leech": {"power": 1.0, "adds_tags": ["lifesteal"]},
+    "Ricochet": {"power": 0.95, "adds_tags": ["bullet_carry"]},
+    "Boundless Spirit": {"power": 0.95, "adds_tags": ["spirit"]},
+    "Refresher": {"power": 1.0, "adds_tags": ["spirit", "cc"]},
+    "Glass Cannon": {"power": 0.95, "adds_tags": ["bullet_carry"]},
+    "Crippling Headshot": {"power": 0.9, "adds_tags": ["bullet_carry"]},
+    "Unstoppable": {"power": 0.9, "adds_tags": ["cc"]},
+    "Spirit Lifesteal": {"power": 0.65, "adds_tags": ["lifesteal"]},
+    "Bullet Lifesteal": {"power": 0.65, "adds_tags": ["lifesteal"]},
+    "Torment Pulse": {"power": 0.7, "adds_tags": ["spirit"]},
+    "Tesla Bullets": {"power": 0.7, "adds_tags": ["bullet_carry"]}
+  },
+  "counter_items": [
+    {
+      "item_name": "Healbane",
+      "category": "Vitality",
+      "cost": 1600,
+      "counters_tag": "lifesteal",
+      "min_threat_weight": 1.0,
+      "template_reason": "Contre {heroes_str} : réduit soins et vol de vie.",
+      "template_reason_en": "Vs {heroes_str_en}: cuts healing & lifesteal."
+    },
+    {
+      "item_name": "Decay",
+      "category": "Spirit",
+      "cost": 3200,
+      "counters_tag": "lifesteal",
+      "min_threat_weight": 1.5,
+      "template_reason": "Contre {heroes_str} : anti-heal actif.",
+      "template_reason_en": "Vs {heroes_str_en}: active anti-heal."
+    },
+    {
+      "item_name": "Toxic Bullets",
+      "category": "Weapon",
+      "cost": 3200,
+      "counters_tag": "lifesteal",
+      "min_threat_weight": 2.0,
+      "template_reason": "Contre {heroes_str} : anti-heal à distance.",
+      "template_reason_en": "Vs {heroes_str_en}: ranged anti-heal."
+    },
+    {
+      "item_name": "Spirit Shielding",
+      "category": "Vitality",
+      "cost": 1600,
+      "counters_tag": "spirit",
+      "min_threat_weight": 1.0,
+      "template_reason": "Bouclier Spirit contre {heroes_str}.",
+      "template_reason_en": "Spirit shield vs {heroes_str_en}."
+    },
+    {
+      "item_name": "Spirit Resilience",
+      "category": "Vitality",
+      "cost": 3200,
+      "counters_tag": "spirit",
+      "min_threat_weight": 1.8,
+      "template_reason": "Résistance Spirit contre {heroes_str}.",
+      "template_reason_en": "Spirit resistance vs {heroes_str_en}."
+    },
+    {
+      "item_name": "Spellbreaker",
+      "category": "Vitality",
+      "cost": 6400,
+      "counters_tag": "spirit",
+      "min_threat_weight": 2.6,
+      "template_reason": "Contre le burst Spirit de {heroes_str}.",
+      "template_reason_en": "Mitigates Spirit burst from {heroes_str_en}."
+    },
+    {
+      "item_name": "Battle Vest",
+      "category": "Vitality",
+      "cost": 1600,
+      "counters_tag": "bullet_carry",
+      "min_threat_weight": 1.0,
+      "template_reason": "Résistance balles contre {heroes_str}.",
+      "template_reason_en": "Bullet resist vs {heroes_str_en}."
+    },
+    {
+      "item_name": "Bullet Resilience",
+      "category": "Vitality",
+      "cost": 3200,
+      "counters_tag": "bullet_carry",
+      "min_threat_weight": 1.5,
+      "template_reason": "Forte menace arme : {heroes_str}.",
+      "template_reason_en": "Weapon threat: {heroes_str_en}."
+    },
+    {
+      "item_name": "Metal Skin",
+      "category": "Vitality",
+      "cost": 3200,
+      "counters_tag": "bullet_carry",
+      "min_threat_weight": 1.8,
+      "template_reason": "Annule le burst physique de {heroes_str}.",
+      "template_reason_en": "Negates physical burst from {heroes_str_en}."
+    },
+    {
+      "item_name": "Debuff Reducer",
+      "category": "Vitality",
+      "cost": 1600,
+      "counters_tag": "cc",
+      "min_threat_weight": 1.0,
+      "template_reason": "Réduit les contrôles de {heroes_str}.",
+      "template_reason_en": "Reduces CC from {heroes_str_en}."
+    },
+    {
+      "item_name": "Dispel Magic",
+      "category": "Vitality",
+      "cost": 3200,
+      "counters_tag": "cc",
+      "min_threat_weight": 1.6,
+      "template_reason": "Purge les contrôles de {heroes_str}.",
+      "template_reason_en": "Cleanses CC from {heroes_str_en}."
+    },
+    {
+      "item_name": "Reactive Barrier",
+      "category": "Vitality",
+      "cost": 1600,
+      "counters_tag": "cc",
+      "min_threat_weight": 1.2,
+      "template_reason": "Bouclier auto contre les stuns de {heroes_str}.",
+      "template_reason_en": "Auto-shield vs stuns from {heroes_str_en}."
+    }
+  ],
+  "lane_defensive_items": [
+    {
+      "item_name": "Extra Regen",
+      "category": "Vitality",
+      "cost": 800,
+      "reason": "Retard de {lane_gap_str} âmes vs {lane_enemy} : tiens ta lane.",
+      "reason_en": "Behind {lane_gap_str_en} souls vs {lane_enemy}: sustain in lane."
+    },
+    {
+      "item_name": "Healing Rite",
+      "category": "Vitality",
+      "cost": 800,
+      "reason": "Retard de {lane_gap_str} âmes vs {lane_enemy} : soigne-toi sous gardien.",
+      "reason_en": "Behind {lane_gap_str_en} souls vs {lane_enemy}: heal safely."
+    },
+    {
+      "item_name": "Weapon Shielding",
+      "category": "Vitality",
+      "cost": 1600,
+      "reason": "Lane difficile ({lane_gap_str} âmes vs {lane_enemy}) : bloque le poke.",
+      "reason_en": "Tough lane ({lane_gap_str_en} souls vs {lane_enemy}): absorb poke."
+    }
+  ],
+  "lane_snowball_items": [
+    {
+      "item_name": "Headshot Booster",
+      "category": "Weapon",
+      "cost": 800,
+      "reason": "Avance de +{lane_lead} âmes vs {lane_enemy} : punis chaque peek.",
+      "reason_en": "+{lane_lead_en} souls ahead of {lane_enemy}: punish every peek."
+    },
+    {
+      "item_name": "High-Velocity Rounds",
+      "category": "Weapon",
+      "cost": 800,
+      "reason": "Avance de +{lane_lead} âmes vs {lane_enemy} : sécurise les denies.",
+      "reason_en": "+{lane_lead_en} souls ahead of {lane_enemy}: dominate denies."
+    },
+    {
+      "item_name": "Fleetfoot",
+      "category": "Weapon",
+      "cost": 1600,
+      "reason": "Tu gagnes ta lane (+{lane_lead} âmes) : accélère tes rotations.",
+      "reason_en": "Winning lane (+{lane_lead_en} souls): speed up roams."
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# Python / venv
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local caches, profile & debug captures
+data/cache/*
+!data/cache/.gitkeep
+data/debug_captures/
+data/user_profile.json
+
+# Personal gameplay screenshots
+images/*.png
+images/*.jpg
+images/*.jpeg
+images/*.webp
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# OS & Environment
+.DS_Store
+Thumbs.db
+.env
+.env.local

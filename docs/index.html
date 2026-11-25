@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deadlock Helper — Companion VAC-Safe &amp; Documentation</title>
+    <meta
+      name="description"
+      content="Assistant temps réel VAC-safe pour Deadlock : OCR sur TAB, détection d'inventaire compatible skins, arbre d'améliorations et analyse Snowball."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-nav">
+      <div class="nav-inner">
+        <a href="#top" class="brand">
+          <span class="brand-dot"></span>
+          <span>DEADLOCK HELPER</span>
+        </a>
+
+        <nav class="nav-links">
+          <a href="#features" data-i18n="navFeatures">Fonctionnalités</a>
+          <a href="#install" data-i18n="navInstall">Installation</a>
+          <a href="#architecture" data-i18n="navArch">Architecture</a>
+          <a href="#faq" data-i18n="navFaq">FAQ</a>
+          <a
+            href="https://github.com/Ulyxx3/deadlock-helper"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="nav-gh"
+          >
+            GitHub ↗
+          </a>
+          <button type="button" id="lang-toggle" class="lang-btn">FR 🇫🇷</button>
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <span class="hero-pill" data-i18n="heroBadge">
+            100 % Externe • Zéro Lecture Mémoire • VAC-Safe
+          </span>
+          <h1 data-i18n="heroTitle">
+            Le companion temps réel pour adapter chaque item dans Deadlock.
+          </h1>
+          <p class="hero-sub" data-i18n="heroSub">
+            Analyse instantanée lorsque tu maintiens TAB : lecture des âmes, détection des 12 héros
+            même avec des skins personnalisés, calcul du Snowball ennemi et suivi complet de
+            l'arbre d'améliorations sur ton second écran.
+          </p>
+          <div class="hero-cta">
+            <a href="#install" class="btn-primary" data-i18n="ctaInstall">Installer en 2 min</a>
+            <a
+              href="https://github.com/Ulyxx3/deadlock-helper"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn-secondary"
+              data-i18n="ctaRepo"
+            >
+              Voir sur GitHub
+            </a>
+          </div>
+        </div>
+
+        <div class="hero-preview" aria-label="Aperçu de l'interface Deadlock Helper">
+          <div class="mock-header">
+            <span class="mock-title">Vindicta • 28:04 • 30 000 âmes</span>
+            <span class="mock-slots">11/12 slots</span>
+          </div>
+          <div class="mock-enemies">
+            <span class="mock-enemy lane">Pocket <b>LANE</b> <em>35k</em></span>
+            <span class="mock-enemy fed">Bebop <b>FED</b> <em>35k</em></span>
+            <span class="mock-enemy fed">Abrams <b>FED</b> <em>34k</em></span>
+            <span class="mock-enemy">Seven <em>33k</em></span>
+          </div>
+          <div class="mock-prio">
+            <div class="mock-prio-label" data-i18n="mockPrioTitle">🔥 Priorité absolue</div>
+            <div class="mock-card upgrade">
+              <div>
+                <strong>Sharpshooter</strong>
+                <p data-i18n="mockUpgradeDesc">Améliore Longue portée (0 slot en plus)</p>
+              </div>
+              <span class="badge-up" data-i18n="mockUpgradeBadge">⬆ AMÉLIO 1 600</span>
+            </div>
+            <div class="mock-card threat">
+              <div>
+                <strong>Brise magie</strong>
+                <p data-i18n="mockThreatDesc">Contre Pocket (+5 000), Bebop, Seven</p>
+              </div>
+              <span class="badge-cost">6 400</span>
+            </div>
+            <div class="mock-card owned">
+              <div>
+                <strong>Veste de combat</strong>
+                <p data-i18n="mockOwnedDesc">Déjà détecté dans ton inventaire</p>
+              </div>
+              <span class="badge-ok" data-i18n="mockOwnedBadge">✔ ACHETÉ</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <h2 data-i18n="featuresTitle">Conçu pour de vraies parties de Deadlock</h2>
+        <div class="cards-grid">
+          <article class="feature-card">
+            <h3 data-i18n="f1Title">🛡 100 % VAC-Safe &amp; Événementiel</h3>
+            <p data-i18n="f1Desc">
+              Aucune lecture mémoire ni injection DLL. L'OCR ne s'exécute que lorsque tu maintiens
+              TAB (via mss + RapidOCR ONNX), gardant 0 % de charge CPU en combat.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n="f2Title">🎨 Compatible DeadlockModManager</h3>
+            <p data-i18n="f2Desc">
+              Les mods de skins remplacent les portraits : le tracker lit donc le nom textuel des
+              12 héros (FR/EN + fuzzy matching) et le verrouille pour toute la partie.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n="f3Title">⬆ Arbre d'améliorations &amp; 12 slots</h3>
+            <p data-i18n="f3Desc">
+              Exploite le graphe officiel des composants pour repérer les améliorations gratuites en
+              slots (⬆ AMÉLIO + coût net) et masquer les T1 obsolètes en late game.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n="f4Title">📈 Snowball &amp; Contres Multi-héros</h3>
+            <p data-i18n="f4Desc">
+              Détecte les ennemis fed par l'écart d'âmes à la moyenne et leurs spikes. Chaque counter
+              liste tous les héros adverses qu'il neutralise.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n="f5Title">🎯 Matchup direct &amp; Priorité absolue</h3>
+            <p data-i18n="f5Desc">
+              Épingle tes adversaires de lane en 1 clic et suis la barre Priorité absolue pour
+              connaître les 3–4 meilleurs achats immédiats.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n="f6Title">🌐 Second Écran, Overlay &amp; FR/EN</h3>
+            <p data-i18n="f6Desc">
+              Interface 4 colonnes sans scroll sur 1080p, mode Overlay compact, et switch instantané
+              entre Français et Anglais (noms officiels Deadlock API inclus).
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="install" class="section">
+        <h2 data-i18n="installTitle">Installation &amp; Lancement rapide (Windows)</h2>
+        <div class="steps-grid">
+          <div class="step-box">
+            <h3 data-i18n="s1Title">1. Cloner et installer</h3>
+            <div class="code-wrap">
+              <pre><code id="cmd-install">git clone https://github.com/Ulyxx3/deadlock-helper.git
+cd deadlock-helper
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+cd frontend &amp;&amp; npm install &amp;&amp; npm run build &amp;&amp; cd ..</code></pre>
+              <button type="button" class="copy-btn" data-copy="cmd-install" data-i18n="copyBtn">
+                Copier
+              </button>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <h3 data-i18n="s2Title">2. Lancer le Companion</h3>
+            <div class="code-wrap">
+              <pre><code id="cmd-run">.\.venv\Scripts\python.exe -m backend.main --server</code></pre>
+              <button type="button" class="copy-btn" data-copy="cmd-run" data-i18n="copyBtn">
+                Copier
+              </button>
+            </div>
+            <p class="step-note" data-i18n="s2Note">
+              Ouvre ensuite <code>http://127.0.0.1:8765</code> sur ton second écran, entre ton
+              pseudo une fois et appuie sur TAB en jeu.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture" class="section">
+        <h2 data-i18n="archTitle">Architecture du pipeline temps réel</h2>
+        <div class="pipeline">
+          <div class="pipe-node">
+            <strong>1. Trigger TAB</strong>
+            <span data-i18n="p1">Écoute OS pynput + capture ciblée mss</span>
+          </div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-node">
+            <strong>2. Vision &amp; OCR</strong>
+            <span data-i18n="p2">RapidOCR (âmes/chrono/héros) + ItemMatcher (6×2 &amp; 2×6)</span>
+          </div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-node">
+            <strong>3. Moteur Méta</strong>
+            <span data-i18n="p3">deadlock-api.com + Snowball + Arbre d'améliorations</span>
+          </div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-node">
+            <strong>4. UI WebSocket</strong>
+            <span data-i18n="p4">FastAPI WS /ws → React 4 colonnes (FR/EN)</span>
+          </div>
+        </div>
+
+        <div class="docs-links">
+          <a
+            href="https://github.com/Ulyxx3/deadlock-helper/blob/main/docs/architecture.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="doc-pill"
+            data-i18n="docArchLink"
+          >
+            📘 Documentation Architecture
+          </a>
+          <a
+            href="https://github.com/Ulyxx3/deadlock-helper/blob/main/docs/calibration.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="doc-pill"
+            data-i18n="docCalibLink"
+          >
+            🎯 Guide de Calibration ROIs
+          </a>
+          <a
+            href="https://github.com/Ulyxx3/deadlock-helper/blob/main/docs/faq.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="doc-pill"
+            data-i18n="docFaqLink"
+          >
+            ❓ Documentation FAQ
+          </a>
+        </div>
+      </section>
+
+      <section id="faq" class="section">
+        <h2 data-i18n="faqTitle">Questions fréquentes</h2>
+        <div class="faq-list">
+          <details open>
+            <summary data-i18n="q1">Est-ce 100 % sans risque vis-à-vis du VAC ?</summary>
+            <p data-i18n="a1">
+              Oui. Aucune lecture mémoire (RPM), aucune DLL injectée et aucun fichier du jeu
+              modifié. L'application analyse uniquement les pixels de ton écran quand tu appuies sur
+              TAB.
+            </p>
+          </details>
+          <details>
+            <summary data-i18n="q2">Ça fonctionne avec des skins DeadlockModManager ?</summary>
+            <p data-i18n="a2">
+              Oui : la détection des héros ne dépend pas des portraits (qui peuvent être moddés),
+              mais de l'OCR du nom de héros sous la carte avec correction fuzzy FR/EN.
+            </p>
+          </details>
+          <details>
+            <summary data-i18n="q3">Comment aligner les zones sur un autre format d'écran ?</summary>
+            <p data-i18n="a3">
+              Lance <code>--image capture.png --dump-rois data/debug_captures</code> pour visualiser
+              les boîtes générées et ajuste les coordonnées normalisées dans
+              <code>backend/config/rois.json</code>.
+            </p>
+          </details>
+          <details>
+            <summary data-i18n="q4">Pourquoi Valve GSI n'est-il pas utilisé ?</summary>
+            <p data-i18n="a4">
+              Valve n'a pas encore publié de Game State Integration pour Deadlock. Le code inclut
+              déjà une interface abstraite <code>MatchDataProvider</code> prête pour le jour où il
+              sera disponible.
+            </p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p data-i18n="footerNote">
+        MIT License • Projet open-source communautaire non affilié à Valve Corporation.
+      </p>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
