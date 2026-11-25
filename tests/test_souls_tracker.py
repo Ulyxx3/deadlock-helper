@@ -26,11 +26,15 @@ def _render_synthetic_scoreboard(
     img = Image.new("RGB", (width, height), color=(18, 22, 28))
     draw = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("arialbd.ttf", 20)
-        timer_font = ImageFont.truetype("arialbd.ttf", 20)
+        font = ImageFont.truetype("arial.ttf", 15)
+        timer_font = ImageFont.truetype("arial.ttf", 15)
     except OSError:
-        font = ImageFont.load_default()
-        timer_font = ImageFont.load_default()
+        try:
+            font = ImageFont.load_default(size=15)
+            timer_font = ImageFont.load_default(size=15)
+        except TypeError:
+            font = ImageFont.load_default()
+            timer_font = ImageFont.load_default()
 
     rois = load_rois()
     sb_x, sb_y, sb_w, sb_h = scale_roi(rois.scoreboard_bounds, width, height)

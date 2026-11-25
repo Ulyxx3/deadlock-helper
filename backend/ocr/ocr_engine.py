@@ -113,15 +113,28 @@ class RapidOcrBackend(OcrBackend):
         self._engine = RapidOCR()
 
     def recognize_text(self, image_bgr: np.ndarray) -> str:
-        if hasattr(self._engine, "text_recognizer"):
-            rec_res, _ = self._engine.text_recognizer([image_bgr])
-            if rec_res and rec_res[0]:
-                return str(rec_res[0][0]).strip()
+        # Bypass text detection on pre-cropped single-line ROIs across rapidocr-onnxruntime versions.
+        for attr in ("text_recognizer", "text_rec"):
+            rec_fn = getattr(self._engine, attr, None)
+            if callable(rec_fn):
+                rec_res, _ = rec_fn([image_bgr])
+                if rec_res and rec_res[0]:
+                    return str(rec_res[0][0]).strip()
 
-        result, _ = self._engine(image_bgr)
+        try:
+            result, _ = self._engine(image_bgr, use_det=False, use_cls=False, use_rec=True)
+        except TypeError:
+            result, _ = self._engine(image_bgr)
+
         if not result:
             return ""
-        texts = [str(entry[1]) for entry in result if len(entry) >= 2 and entry[1]]
+        texts: list[str] = []
+        for entry in result:
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                # [box, text, score] vs (text, score)
+                candidate = entry[1] if isinstance(entry[0], (list, tuple)) else entry[0]
+                if candidate:
+                    texts.append(str(candidate))
         return "".join(texts).strip()
 
 
