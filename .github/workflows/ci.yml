@@ -20,7 +20,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run pytest suite
-        run: pytest -v
+        run: python -m pytest -v
 
   frontend-build:
     runs-on: ubuntu-latest
