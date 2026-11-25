@@ -126,10 +126,54 @@ def test_match_player_pseudo() -> None:
 
 def test_monotonic_anti_jitter_filter() -> None:
     tracker = OcrSoulsTracker(ocr_backend=RapidOcrBackend())
-    assert tracker.apply_monotonic_filter(0, 4200, now=10.0) == 4200
-    assert tracker.apply_monotonic_filter(0, 420, now=11.0) == 4200
-    assert tracker.apply_monotonic_filter(0, 4950, now=15.0) == 4950
-    assert tracker.apply_monotonic_filter(0, 35000, now=16.0) == 4950
+    assert tracker.apply_monotonic_filter(0, 4200, now=10.0, match_minutes=5.0) == 4200
+    # Single-frame drop caused by OCR missing a digit must be rejected
+    assert tracker.apply_monotonic_filter(0, 420, now=11.0, match_minutes=5.0) == 4200
+    # Plausible increase is accepted
+    assert tracker.apply_monotonic_filter(0, 4950, now=15.0, match_minutes=5.5) == 4950
+    # Impossible single-frame spike (+30k in 1s) and economic ceiling (85k at 23 min) rejected
+    assert tracker.apply_monotonic_filter(0, 35000, now=16.0, match_minutes=5.5) == 4950
+    assert tracker.apply_monotonic_filter(1, 85000, now=20.0, match_minutes=23.0, lobby_median=22000.0) is None
+
+    # 2-frame self-healing recovery if a lower value persists across 2 consecutive scans
+    assert tracker.apply_monotonic_filter(2, 40000, now=10.0, match_minutes=23.0) == 40000
+    assert tracker.apply_monotonic_filter(2, 20000, now=11.0, match_minutes=23.0) == 40000
+    assert tracker.apply_monotonic_filter(2, 20500, now=12.0, match_minutes=23.0) == 20500
+
+
+def test_dead_portrait_spectator_guard_and_team_sides() -> None:
+    # Build synthetic 1024x575 scoreboard where left banner is Sapphire Blue,
+    # Slot 05 has darkened portrait + red respawn countdown ("48"), and Slot 04 is alive.
+    img = np.full((575, 1024, 3), 24, dtype=np.uint8)
+    # Left banner blue (BGR: 190, 125, 90)
+    img[23:41, 455:498] = (190, 125, 90)
+    # Right banner amber (BGR: 20, 110, 175)
+    img[23:41, 527:570] = (20, 110, 175)
+
+    tracker = OcrSoulsTracker(ocr_backend=RapidOcrBackend())
+    left_team, right_team = tracker.detect_team_sides(img)
+    assert left_team == Team.SAPPHIRE_FLAME
+    assert right_team == Team.AMBER_HAND
+
+    cfg_slot5 = tracker.roi_config.players[5]
+    cfg_slot4 = tracker.roi_config.players[4]
+    # Draw darkened portrait + red respawn countdown text ("48") on slot 05
+    px = int(cfg_slot5.souls_roi.x * 1024)
+    pw = int(cfg_slot5.souls_roi.w * 1024)
+    img[12:43, px : px + pw] = (40, 40, 50)
+    cv2.putText(img, "48", (px + 3, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (30, 40, 235), 2)
+
+    assert tracker.is_slot_dead(img, cfg_slot5) is True
+    assert tracker.is_slot_dead(img, cfg_slot4) is False
+
+    # Spectator POV guard: if _last_own_items has 6 items and self_is_dead=True,
+    # extract_match_state must keep _last_own_items instead of reading bottom-left POV items
+    tracker._locked_self_slot = 5
+    tracker._last_own_items = ["Battle Vest", "Lucky Shot", "Glass Cannon", "Sharpshooter", "Spellslinger", "Rapid Recharge"]
+    match = tracker.extract_match_state(img, player_pseudo="Ulyxx3")
+    assert match.self_is_dead is True
+    assert match.self_player is not None
+    assert match.self_player.items == tracker._last_own_items
 
 
 def test_rapidocr_end_to_end_on_synthetic_scoreboard() -> None:

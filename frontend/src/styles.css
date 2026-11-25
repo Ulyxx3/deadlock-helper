@@ -235,6 +235,38 @@ button:disabled {
   font-weight: 600;
 }
 
+.dead-pill {
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: rgba(255, 93, 108, 0.16);
+  border: 1px solid var(--danger);
+  color: #ff9aa3;
+  font-weight: 600;
+}
+
+.balance-pills {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bal-pill {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.bal-pill.bal-warn {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(230, 179, 90, 0.12);
+  font-weight: 600;
+}
+
 .label {
   font-size: 0.64rem;
   color: var(--muted);

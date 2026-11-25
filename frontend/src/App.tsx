@@ -36,6 +36,10 @@ const UI_TEXT: Record<
     lanePinHint: string;
     laneBadge: string;
     topPriorityTitle: string;
+    deadSpectator: string;
+    balanceDamageWarn: string;
+    balanceSustainWarn: string;
+    balanceDefenseWarn: string;
     emptySection: string;
     sections: Record<RecommendationSectionName, string>;
   }
@@ -68,6 +72,10 @@ const UI_TEXT: Record<
     lanePinHint: "Cliquer sur un ennemi pour cibler ton matchup de lane",
     laneBadge: "LANE",
     topPriorityTitle: "🔥 Priorité absolue",
+    deadSpectator: "☠ Mort / Spectateur (inventaire figé)",
+    balanceDamageWarn: "Manque de dégâts",
+    balanceSustainWarn: "Manque de soin / sustain",
+    balanceDefenseWarn: "Aucune défense Vitality",
     emptySection: "Aucune alerte prioritaire.",
     sections: {
       "Priorité absolue": "Priorité absolue",
@@ -105,6 +113,10 @@ const UI_TEXT: Record<
     lanePinHint: "Click an enemy to pin your direct lane matchup",
     laneBadge: "LANE",
     topPriorityTitle: "🔥 Top Priority",
+    deadSpectator: "☠ Dead / Spectating (inventory locked)",
+    balanceDamageWarn: "Low damage items",
+    balanceSustainWarn: "Missing healing / sustain",
+    balanceDefenseWarn: "No Vitality defense",
     emptySection: "No urgent counter needed.",
     sections: {
       "Priorité absolue": "Top Priority",
@@ -464,6 +476,40 @@ export default function App() {
               <span className={`slots-pill ${slotsUsed >= 10 ? "slots-tight" : ""}`}>
                 {slotsUsed}/{slotsMax} {t.slotsLabel}
               </span>
+
+              {snapshot.self_is_dead && (
+                <span className="dead-pill">{t.deadSpectator}</span>
+              )}
+
+              {snapshot.build_balance && (
+                <div className="balance-pills">
+                  <span
+                    className={`bal-pill ${snapshot.build_balance.needs_damage ? "bal-warn" : ""}`}
+                    title={snapshot.build_balance.needs_damage ? t.balanceDamageWarn : "Weapon"}
+                  >
+                    ⚔ {snapshot.build_balance.weapon_count}
+                  </span>
+                  <span
+                    className={`bal-pill ${snapshot.build_balance.needs_damage ? "bal-warn" : ""}`}
+                    title={snapshot.build_balance.needs_damage ? t.balanceDamageWarn : "Spirit"}
+                  >
+                    ✨ {snapshot.build_balance.spirit_count}
+                  </span>
+                  <span
+                    className={`bal-pill ${snapshot.build_balance.needs_defense ? "bal-warn" : ""}`}
+                    title={snapshot.build_balance.needs_defense ? t.balanceDefenseWarn : "Vitality"}
+                  >
+                    🛡 {snapshot.build_balance.vitality_count}
+                  </span>
+                  <span
+                    className={`bal-pill ${snapshot.build_balance.needs_sustain ? "bal-warn" : ""}`}
+                    title={snapshot.build_balance.needs_sustain ? t.balanceSustainWarn : "Sustain"}
+                  >
+                    🩸 {snapshot.build_balance.sustain_count}
+                    {snapshot.build_balance.needs_sustain ? " ⚠" : ""}
+                  </span>
+                </div>
+              )}
 
               <div className="team-bar-box">
                 <div className="team-bar-labels">

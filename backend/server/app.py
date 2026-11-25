@@ -88,9 +88,10 @@ def build_snapshot(
     fr_names: dict[str, str] | None = None,
     upgrade_graph: dict[str, Any] | None = None,
     pinned_lane_opponents: list[str] | None = None,
+    item_categories: dict[str, str] | None = None,
     source: str = "idle",
 ) -> dict[str, Any]:
-    """Serialize MatchState + Snowball + Upgrades + Recommendations into the UI JSON contract."""
+    """Serialize MatchState + Dead State + Build Balance + Upgrades into the UI JSON contract."""
     empty_sections = {sec.value: [] for sec in RecommendationSection}
     fr_map = fr_names or {}
     pinned_lanes = list(pinned_lane_opponents or [])
@@ -101,9 +102,11 @@ def build_snapshot(
             "source": source,
             "live_enabled": live_enabled,
             "player_pseudo": player_pseudo,
+            "self_is_dead": False,
             "pinned_lane_opponents": pinned_lanes,
             "inventory_slots_used": 0,
             "inventory_slots_max": 12,
+            "build_balance": None,
             "updated_at": time.time(),
             "match_minutes": 0.0,
             "match_timer_display": "00:00",
@@ -154,8 +157,20 @@ def build_snapshot(
     lane_status_str = "even"
     snowball_payload: list[dict[str, Any]] = []
     sections_payload: dict[str, list[dict[str, Any]]] = {sec.value: [] for sec in RecommendationSection}
+    balance_payload: dict[str, Any] | None = None
 
     if me is not None:
+        balance = engine.analyze_build_balance(match_state, item_categories=item_categories)
+        balance_payload = {
+            "weapon_count": balance.weapon_count,
+            "spirit_count": balance.spirit_count,
+            "vitality_count": balance.vitality_count,
+            "sustain_count": balance.sustain_count,
+            "needs_damage": balance.needs_damage,
+            "needs_sustain": balance.needs_sustain,
+            "needs_defense": balance.needs_defense,
+        }
+
         lane_arg = pinned_lanes if pinned_lanes else None
         lane_status, _, resolved_lane_opponents = engine.evaluate_lane_status(
             match_state, lane_opponent_heroes=lane_arg
@@ -182,6 +197,7 @@ def build_snapshot(
             default_core_build=core_build,
             upgrade_graph=upgrade_graph,
             lane_opponent_heroes=lane_arg,
+            item_categories=item_categories,
         )
         for rec in recs:
             key = rec.item_name.strip().lower()
@@ -212,9 +228,11 @@ def build_snapshot(
         "source": source,
         "live_enabled": live_enabled,
         "player_pseudo": player_pseudo,
+        "self_is_dead": match_state.self_is_dead,
         "pinned_lane_opponents": pinned_lanes,
         "inventory_slots_used": len(me.items) if me else 0,
         "inventory_slots_max": 12,
+        "build_balance": balance_payload,
         "updated_at": time.time(),
         "match_minutes": match_state.match_minutes,
         "match_timer_display": _format_timer_display(match_state.match_minutes),
@@ -244,6 +262,7 @@ class CompanionServerState:
         self.icon_lookup = build_icon_lookup(self.settings.item_icons_dir)
         self.fr_names = self.api_client.get_item_names_fr()
         self.upgrade_graph = self.api_client.get_upgrade_graph()
+        self.item_categories = self.api_client.get_item_categories()
         self.tracker = OcrSoulsTracker(
             settings=self.settings,
             item_matcher=ItemMatcher(self.settings.item_icons_dir),
@@ -270,6 +289,7 @@ class CompanionServerState:
             fr_names=self.fr_names,
             upgrade_graph=self.upgrade_graph,
             pinned_lane_opponents=self.pinned_lane_opponents,
+            item_categories=self.item_categories,
             source=source,
         )
 

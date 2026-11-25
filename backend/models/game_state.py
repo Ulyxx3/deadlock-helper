@@ -32,6 +32,19 @@ class RecommendationSection(str, Enum):
 
 
 @dataclass
+class BuildBalance:
+    """Breakdown of the local player's current build across Weapon/Spirit/Vitality/Sustain."""
+
+    weapon_count: int
+    spirit_count: int
+    vitality_count: int
+    sustain_count: int
+    needs_damage: bool
+    needs_sustain: bool
+    needs_defense: bool
+
+
+@dataclass
 class PlayerState:
     """Snapshot of a single player's state extracted from scoreboard or test fixture."""
 
@@ -55,6 +68,7 @@ class MatchState:
     timestamp: float
     match_minutes: float
     players: list[PlayerState]
+    self_is_dead: bool = False
 
     @property
     def self_player(self) -> PlayerState | None:

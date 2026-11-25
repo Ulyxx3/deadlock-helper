@@ -164,3 +164,50 @@ def test_upgrade_graph_status_and_top_priority_with_tight_inventory() -> None:
 
     direct = [r for r in recs if r.section == RecommendationSection.DIRECT_MATCHUP]
     assert len(direct) > 0
+
+
+def test_build_balance_sustain_gap_and_top_priority_diversity() -> None:
+    # 3 Weapon, 2 Spirit, 1 Vitality (Battle Vest), 0 Sustain at 23 min against Spirit/CC enemies
+    items = ["Sharpshooter", "Hollow Point", "Headhunter", "Enchanter's Emblem", "Rapid Recharge", "Battle Vest"]
+    cats = {
+        "sharpshooter": "Weapon",
+        "hollow point": "Weapon",
+        "headhunter": "Weapon",
+        "enchanter's emblem": "Spirit",
+        "rapid recharge": "Spirit",
+        "battle vest": "Vitality",
+    }
+    match = MatchState(
+        timestamp=600.0,
+        match_minutes=23.0,
+        players=[
+            _make_player(0, Team.SAPPHIRE_FLAME, "Vindicta", 19_000, items=items, lane_id=1, is_self=True),
+            _make_player(6, Team.AMBER_HAND, "Calico", 21_000, lane_id=1),
+            _make_player(7, Team.AMBER_HAND, "Pocket", 22_000, lane_id=2),
+            _make_player(8, Team.AMBER_HAND, "Bebop", 22_000, lane_id=2),
+            _make_player(9, Team.AMBER_HAND, "Graves", 19_000, lane_id=3),
+        ],
+    )
+    core_build = [
+        {"item_name": "Stamina Mastery", "category": "Vitality", "cost": 3200, "tier": 3},
+        {"item_name": "Glass Cannon", "category": "Weapon", "cost": 6400, "tier": 4},
+        {"item_name": "Crippling Headshot", "category": "Weapon", "cost": 6400, "tier": 4},
+    ]
+
+    engine = RecommendationEngine()
+    balance = engine.analyze_build_balance(match, item_categories=cats)
+    assert balance.weapon_count == 3
+    assert balance.spirit_count == 2
+    assert balance.vitality_count == 1
+    assert balance.sustain_count == 0
+    assert balance.needs_sustain is True
+    assert balance.needs_damage is False
+
+    recs = engine.recommend(match, default_core_build=core_build, item_categories=cats)
+    top_prio = [r for r in recs if r.section == RecommendationSection.TOP_PRIORITY]
+    assert len(top_prio) == 4
+    # Must NEVER recommend 4 pure defensive Vitality items; must include damage & sustain
+    pure_def = [r for r in top_prio if r.category == "Vitality" and r.item_name not in {"Fortitude", "Healbane"}]
+    assert len(pure_def) <= 2
+    assert any(r.category in {"Weapon", "Spirit"} for r in top_prio)
+    assert any(r.item_name in {"Fortitude", "Healbane"} for r in top_prio)

@@ -102,6 +102,21 @@ class DeadlockApiClient:
         """Alias returning upgrade shop items."""
         return self.get_shop_items(ttl_seconds=ttl_seconds)
 
+    def get_item_categories(self, ttl_seconds: int = 86_400) -> dict[str, str]:
+        """Return normalized item_name -> 'Weapon' | 'Vitality' | 'Spirit'."""
+        slot_to_cat = {"weapon": "Weapon", "vitality": "Vitality", "spirit": "Spirit"}
+        try:
+            shop_items = self.get_shop_items(ttl_seconds=ttl_seconds)
+        except Exception:
+            return {}
+        return {
+            str(item["name"]).strip().lower(): slot_to_cat.get(
+                str(item.get("item_slot_type", "weapon")).lower(), "Core"
+            )
+            for item in shop_items
+            if item.get("name")
+        }
+
     def get_hero_id(self, hero_name: str) -> int | None:
         """Resolve a canonical hero name (e.g. 'Vindicta') to its Deadlock hero_id."""
         target = hero_name.strip().lower()

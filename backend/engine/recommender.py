@@ -1,4 +1,4 @@
-"""Snowball & dynamic matchup-aware item recommendation engine with upgrade tree evolution."""
+"""Snowball, build-balance, and dynamic matchup-aware item recommendation engine."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 
 from backend.config.settings import DEFAULT_RULES_PATH, AppSettings
 from backend.models.game_state import (
+    BuildBalance,
     ItemRecommendation,
     LaneStatus,
     MatchState,
@@ -16,6 +17,49 @@ from backend.models.game_state import (
     RecommendationSection,
     SnowballReport,
 )
+
+SUSTAIN_ITEMS = {
+    "extra regen",
+    "healing rite",
+    "bullet lifesteal",
+    "spirit lifesteal",
+    "melee lifesteal",
+    "healbane",
+    "healing booster",
+    "healing nova",
+    "fortitude",
+    "leech",
+    "siphon bullets",
+    "restorative locket",
+    "radiant regeneration",
+    "healing tempo",
+    "mystic regeneration",
+}
+SPIRIT_RESIST_ITEMS = {
+    "spirit shielding",
+    "spirit resilience",
+    "spellbreaker",
+    "enchanter's emblem",
+    "counterspell",
+}
+BULLET_RESIST_ITEMS = {
+    "battle vest",
+    "bullet resilience",
+    "metal skin",
+    "plated armor",
+    "weapon shielding",
+}
+CC_DEFENSE_ITEMS = {
+    "debuff reducer",
+    "dispel magic",
+    "reactive barrier",
+    "unstoppable",
+}
+ANTI_HEAL_ITEMS = {
+    "healbane",
+    "decay",
+    "toxic bullets",
+}
 
 
 def _format_souls(amount: int) -> str:
@@ -43,7 +87,7 @@ def _format_hero_list(reports: list[SnowballReport], english: bool = False) -> s
 
 
 class RecommendationEngine:
-    """Computes snowball scores, lane status, upgrade paths, and dynamic item priorities."""
+    """Computes snowball scores, build balance, upgrade paths, and dynamic priorities."""
 
     def __init__(
         self,
@@ -54,6 +98,58 @@ class RecommendationEngine:
         self.rules = json.loads(rules_path.read_text(encoding="utf-8"))
         self.hero_tags: dict[str, list[str]] = self.rules.get("hero_threat_tags", {})
         self.key_spikes: dict[str, dict] = self.rules.get("key_power_spike_items", {})
+        self._rule_categories: dict[str, str] = {}
+        for grp in ("counter_items", "lane_defensive_items", "lane_snowball_items"):
+            for entry in self.rules.get(grp, []):
+                self._rule_categories[entry["item_name"].strip().lower()] = entry["category"]
+
+    def analyze_build_balance(
+        self,
+        match: MatchState,
+        item_categories: dict[str, str] | None = None,
+    ) -> BuildBalance:
+        """Analyze Weapon/Spirit/Vitality/Sustain balance in the player's current inventory."""
+        me = match.self_player
+        if me is None:
+            return BuildBalance(0, 0, 0, 0, False, False, False)
+
+        cat_lookup = {**self._rule_categories, **(item_categories or {})}
+        weapon = spirit = vitality = sustain = 0
+
+        for item in me.items:
+            key = item.strip().lower()
+            cat = cat_lookup.get(key)
+            if cat is None:
+                if key in SPIRIT_RESIST_ITEMS | BULLET_RESIST_ITEMS | CC_DEFENSE_ITEMS | SUSTAIN_ITEMS:
+                    cat = "Vitality"
+                else:
+                    cat = "Weapon"
+            if cat == "Weapon":
+                weapon += 1
+            elif cat == "Spirit":
+                spirit += 1
+            elif cat == "Vitality":
+                vitality += 1
+
+            if key in SUSTAIN_ITEMS:
+                sustain += 1
+
+        damage_count = weapon + spirit
+        needs_damage = match.match_minutes >= 12.0 and (
+            damage_count < 3 or (vitality >= 3 and damage_count <= vitality)
+        )
+        needs_sustain = match.match_minutes >= 12.0 and sustain == 0
+        needs_defense = match.match_minutes >= 15.0 and vitality == 0
+
+        return BuildBalance(
+            weapon_count=weapon,
+            spirit_count=spirit,
+            vitality_count=vitality,
+            sustain_count=sustain,
+            needs_damage=needs_damage,
+            needs_sustain=needs_sustain,
+            needs_defense=needs_defense,
+        )
 
     def compute_snowball_reports(self, match: MatchState) -> list[SnowballReport]:
         """Quantify each enemy's snowball state primarily from souls gap & key items."""
@@ -210,8 +306,15 @@ class RecommendationEngine:
         section: RecommendationSection,
         owned_display_by_lower: dict[str, str],
         upgrade_graph: dict[str, Any] | None,
+        balance: BuildBalance,
         min_weight_override: float | None = None,
     ) -> list[ItemRecommendation]:
+        owned_keys = set(owned_display_by_lower.keys())
+        has_spirit_res = bool(owned_keys & SPIRIT_RESIST_ITEMS)
+        has_bullet_res = bool(owned_keys & BULLET_RESIST_ITEMS)
+        has_cc_def = bool(owned_keys & CC_DEFENSE_ITEMS)
+        has_anti_heal = bool(owned_keys & ANTI_HEAL_ITEMS)
+
         recs: list[ItemRecommendation] = []
         for rule in self.rules.get("counter_items", []):
             tag = rule["counters_tag"]
@@ -225,6 +328,7 @@ class RecommendationEngine:
                 continue
 
             top_driver = matching_reports[0]
+            any_fed_driver = any(r.is_fed for r in matching_reports)
             heroes_str = _format_hero_list(matching_reports, english=False)
             heroes_str_en = _format_hero_list(matching_reports, english=True)
             reason_fr = rule["template_reason"].format(
@@ -236,6 +340,23 @@ class RecommendationEngine:
                 heroes_str_en=heroes_str_en,
             )
 
+            prio = weight * (1.25 if any_fed_driver else 1.0)
+            # Diminishing returns: avoid piling redundant resists if one is already owned
+            if tag == "spirit" and has_spirit_res and not any_fed_driver:
+                prio *= 0.55
+            elif tag == "bullet_carry" and has_bullet_res and not any_fed_driver:
+                prio *= 0.55
+            elif tag == "cc" and has_cc_def and not any_fed_driver:
+                prio *= 0.60
+            elif tag == "lifesteal" and has_anti_heal:
+                prio *= 0.60
+
+            # If player already lacks damage/sustain, gently dampen pure defensive non-fed counters
+            if balance.needs_damage and rule["category"] == "Vitality" and not any_fed_driver:
+                prio *= 0.75
+            if balance.needs_sustain and rule["item_name"].strip().lower() in SUSTAIN_ITEMS:
+                prio *= 1.35
+
             rec = ItemRecommendation(
                 item_name=rule["item_name"],
                 category=rule["category"],
@@ -243,7 +364,7 @@ class RecommendationEngine:
                 section=section,
                 reason=reason_fr,
                 reason_en=reason_en,
-                priority=round(weight * (1.25 if top_driver.is_fed else 1.0), 3),
+                priority=round(prio, 3),
                 target_heroes=[r.hero_name for r in matching_reports],
             )
             recs.append(self._apply_upgrade_fields(rec, owned_display_by_lower, upgrade_graph))
@@ -258,8 +379,9 @@ class RecommendationEngine:
         default_core_build: list[dict[str, str | int]] | list[str] | None,
         owned_display_by_lower: dict[str, str],
         upgrade_graph: dict[str, Any] | None,
+        balance: BuildBalance,
     ) -> list[ItemRecommendation]:
-        """Adapt Core build to match phase and inject upgrades of already-owned items."""
+        """Adapt Core build to match phase, build balance, and owned-item upgrade paths."""
         is_late_or_mid = (
             match.match_minutes >= 12.0
             or me.souls >= 10_000
@@ -269,7 +391,6 @@ class RecommendationEngine:
         candidates: list[tuple[str, str, int, float, str, str]] = []
         seen_lower: set[str] = set()
 
-        # 1. Direct evolutions of items the player ALREADY owns in inventory
         if upgrade_graph:
             upgrades_into: dict[str, list[dict[str, Any]]] = upgrade_graph.get("upgrades_into", {})
             for owned_lower, owned_display in owned_display_by_lower.items():
@@ -280,16 +401,21 @@ class RecommendationEngine:
                         continue
                     seen_lower.add(upg_lower)
                     cost = int(upg.get("cost") or 3200)
+                    cat = str(upg.get("category", "Core"))
+                    prio = 3.3
+                    if balance.needs_damage and cat in {"Weapon", "Spirit"}:
+                        prio += 0.4
+                    if balance.needs_sustain and upg_lower in SUSTAIN_ITEMS:
+                        prio += 0.45
                     candidates.append((
                         upg_name,
-                        str(upg.get("category", "Core")),
+                        cat,
                         cost,
-                        3.3,
+                        prio,
                         f"Améliore {owned_display} (0 slot en plus).",
                         f"Upgrades {owned_display} (0 extra slot).",
                     ))
 
-        # 2. Multi-phase guide items from Deadlock API
         for idx, entry in enumerate(default_core_build or []):
             if isinstance(entry, str):
                 name, category, cost, tier = entry, "Core", 1600, 2
@@ -306,7 +432,6 @@ class RecommendationEngine:
             status, comp_name, _ = self._resolve_upgrade_status(
                 name, cost, owned_display_by_lower, upgrade_graph
             )
-            # In mid/late game, drop unbought T1 early items that aren't upgrades
             if is_late_or_mid and tier <= 1 and status == "new":
                 continue
 
@@ -329,6 +454,11 @@ class RecommendationEngine:
                 r_en = f"{phase_tag} {me.hero_name} (#{idx + 1})."
                 prio = (2.6 if (is_late_or_mid and tier >= 3) else 2.4) - idx * 0.05
 
+            if balance.needs_damage and category in {"Weapon", "Spirit"} and status == "new":
+                prio += 0.35
+            if balance.needs_sustain and name_lower in SUSTAIN_ITEMS and status in {"new", "upgrade_ready"}:
+                prio += 0.45
+
             candidates.append((name, category, cost, prio, r_fr, r_en))
 
         built: list[ItemRecommendation] = []
@@ -344,7 +474,6 @@ class RecommendationEngine:
             )
             built.append(self._apply_upgrade_fields(rec, owned_display_by_lower, upgrade_graph))
 
-        # Order: upgrade_ready -> new -> owned -> evolved
         status_rank = {"upgrade_ready": 0, "new": 1, "owned": 2, "evolved": 3}
         built.sort(key=lambda r: (status_rank.get(r.upgrade_status, 9), -r.priority))
         return built[:10]
@@ -353,8 +482,9 @@ class RecommendationEngine:
         self,
         all_recs: list[ItemRecommendation],
         owned_count: int,
+        balance: BuildBalance,
     ) -> list[ItemRecommendation]:
-        """Select top 3-4 highest-impact items to buy RIGHT NOW across all sections."""
+        """Select top 3-4 balanced items: cap pure defense at 2 and ensure damage/sustain."""
         inventory_tight = owned_count >= 9
         scored: list[tuple[float, ItemRecommendation]] = []
         seen_lower: set[str] = set()
@@ -369,17 +499,60 @@ class RecommendationEngine:
 
             score = rec.priority
             if rec.section == RecommendationSection.GLOBAL_THREATS:
-                score += 0.9
+                score += 0.65
             elif rec.section == RecommendationSection.DIRECT_MATCHUP:
-                score += 0.6
+                score += 0.45
             if rec.upgrade_status == "upgrade_ready":
-                score += 1.4 if inventory_tight else 0.7
+                score += 1.4 if inventory_tight else 0.75
+            if balance.needs_damage and rec.category in {"Weapon", "Spirit"}:
+                score += 0.95
+            if balance.needs_sustain and key in SUSTAIN_ITEMS:
+                score += 1.05
 
             scored.append((score, rec))
 
         scored.sort(key=lambda pair: pair[0], reverse=True)
+
+        selected: list[tuple[float, ItemRecommendation]] = []
+        picked_keys: set[str] = set()
+
+        def _is_pure_defense(r: ItemRecommendation) -> bool:
+            return r.category == "Vitality" and r.item_name.strip().lower() not in SUSTAIN_ITEMS
+
+        # 1. Guarantee at least 1 damage/upgrade item if available
+        for sc, rec in scored:
+            if rec.category in {"Weapon", "Spirit"} or rec.upgrade_status == "upgrade_ready":
+                selected.append((sc, rec))
+                picked_keys.add(rec.item_name.strip().lower())
+                break
+
+        # 2. Guarantee 1 sustain item if build lacks sustain
+        if balance.needs_sustain:
+            for sc, rec in scored:
+                k = rec.item_name.strip().lower()
+                if k not in picked_keys and k in SUSTAIN_ITEMS:
+                    selected.append((sc, rec))
+                    picked_keys.add(k)
+                    break
+
+        # 3. Fill remaining slots up to 4, capping pure defensive Vitality items at 2
+        defense_count = sum(1 for _, r in selected if _is_pure_defense(r))
+        for sc, rec in scored:
+            if len(selected) >= 4:
+                break
+            k = rec.item_name.strip().lower()
+            if k in picked_keys:
+                continue
+            if _is_pure_defense(rec) and defense_count >= 2:
+                continue
+            selected.append((sc, rec))
+            picked_keys.add(k)
+            if _is_pure_defense(rec):
+                defense_count += 1
+
+        selected.sort(key=lambda pair: pair[0], reverse=True)
         top_items: list[ItemRecommendation] = []
-        for score, src in scored[:4]:
+        for score, src in selected[:4]:
             suffix_fr = f" (0 slot via {src.upgrades_from_owned})" if src.upgrades_from_owned else ""
             suffix_en = f" (0 slot from {src.upgrades_from_owned})" if src.upgrades_from_owned else ""
             top_items.append(
@@ -406,12 +579,14 @@ class RecommendationEngine:
         default_core_build: list[dict[str, str | int]] | list[str] | None = None,
         upgrade_graph: dict[str, Any] | None = None,
         lane_opponent_heroes: list[str] | None = None,
+        item_categories: dict[str, str] | None = None,
     ) -> list[ItemRecommendation]:
-        """Generate recommendations across all sections with upgrade tree & multi-hero reasons."""
+        """Generate balanced recommendations across all sections with upgrade & sustain awareness."""
         me = match.self_player
         if me is None:
             return []
 
+        balance = self.analyze_build_balance(match, item_categories=item_categories)
         owned_display_by_lower = {i.strip().lower(): i.strip() for i in me.items if i.strip()}
         snowball_reports = self.compute_snowball_reports(match)
         snowball_by_hero = {r.hero_name: r for r in snowball_reports}
@@ -475,6 +650,7 @@ class RecommendationEngine:
                 RecommendationSection.DIRECT_MATCHUP,
                 owned_display_by_lower,
                 upgrade_graph,
+                balance,
                 min_weight_override=1.0,
             )
             already_direct = {r.item_name.lower() for r in recommendations}
@@ -495,16 +671,17 @@ class RecommendationEngine:
                 RecommendationSection.GLOBAL_THREATS,
                 owned_display_by_lower,
                 upgrade_graph,
+                balance,
             )
             recommendations.extend(global_counters[:4])
 
         # 3. Evolving Core Items section
         core_recs = self._build_evolving_core(
-            me, match, default_core_build, owned_display_by_lower, upgrade_graph
+            me, match, default_core_build, owned_display_by_lower, upgrade_graph, balance
         )
         recommendations.extend(core_recs)
 
-        # 4. Situational Items section (excluding items already in Global Threats / Core)
+        # 4. Situational Items section (counters + sustain gap injection)
         situational_weights, situational_heroes = self._collect_threat_weights(match.enemies, snowball_by_hero)
         all_counters = self._build_counter_recs(
             situational_weights,
@@ -512,17 +689,31 @@ class RecommendationEngine:
             RecommendationSection.SITUATIONAL_ITEMS,
             owned_display_by_lower,
             upgrade_graph,
+            balance,
         )
         already_global_or_core = {
             r.item_name.lower()
             for r in recommendations
             if r.section in {RecommendationSection.GLOBAL_THREATS, RecommendationSection.CORE_ITEMS}
         }
+        if balance.needs_sustain and "fortitude" not in already_global_or_core and "fortitude" not in owned_display_by_lower:
+            sustain_rec = ItemRecommendation(
+                item_name="Fortitude",
+                category="Vitality",
+                cost=3200,
+                section=RecommendationSection.SITUATIONAL_ITEMS,
+                reason="Aucun objet de soin/sustain (0) : ajoute de la tenue en fight.",
+                reason_en="No healing/sustain item (0): add fight sustain.",
+                priority=2.45,
+            )
+            recommendations.append(self._apply_upgrade_fields(sustain_rec, owned_display_by_lower, upgrade_graph))
+            already_global_or_core.add("fortitude")
+
         for rec in all_counters:
             if rec.item_name.lower() not in already_global_or_core:
                 recommendations.append(rec)
                 already_global_or_core.add(rec.item_name.lower())
 
-        # 5. Top Priority section (must-buy items right now)
-        top_priority_recs = self._build_top_priority(recommendations, len(owned_display_by_lower))
+        # 5. Balanced Top Priority section
+        top_priority_recs = self._build_top_priority(recommendations, len(owned_display_by_lower), balance)
         return top_priority_recs + recommendations

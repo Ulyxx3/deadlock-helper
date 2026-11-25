@@ -51,14 +51,26 @@ export interface ItemRecommendation {
   icon_url: string | null;
 }
 
+export interface BuildBalance {
+  weapon_count: number;
+  spirit_count: number;
+  vitality_count: number;
+  sustain_count: number;
+  needs_damage: boolean;
+  needs_sustain: boolean;
+  needs_defense: boolean;
+}
+
 export interface CompanionSnapshot {
   status: "waiting_for_tab" | "ready";
   source: "idle" | "live_tab" | "test_image";
   live_enabled: boolean;
   player_pseudo: string | null;
+  self_is_dead?: boolean;
   pinned_lane_opponents?: string[];
   inventory_slots_used?: number;
   inventory_slots_max?: number;
+  build_balance?: BuildBalance | null;
   updated_at: number;
   match_minutes: number;
   match_timer_display: string;

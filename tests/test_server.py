@@ -57,6 +57,9 @@ def test_server_test_image_endpoint_on_real_screenshot(tmp_path: Path) -> None:
         assert res.status_code == 200
         snap = res.json()
         assert snap["status"] == "ready"
+        assert snap["self_is_dead"] is False
+        assert snap["build_balance"] is not None
+        assert snap["build_balance"]["weapon_count"] >= 1
         assert snap["match_timer_display"] == "27:53"
         assert snap["self_player"] is not None
         assert snap["self_player"]["hero_name"] == "Vindicta"

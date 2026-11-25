@@ -1,7 +1,8 @@
-"""Scoreboard souls, hero, item, and self-slot tracker with monotonic anti-jitter filtering."""
+"""Scoreboard souls, hero, item, dead-state, and team-side tracker with anti-jitter recovery."""
 
 from __future__ import annotations
 
+import statistics
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -20,7 +21,7 @@ from backend.config.settings import (
     load_rois,
     scale_roi,
 )
-from backend.models.game_state import MatchState, PlayerState
+from backend.models.game_state import MatchState, PlayerState, Team
 from backend.ocr.hero_matcher import HeroMatcher, match_player_pseudo
 from backend.ocr.item_matcher import ItemMatcher
 from backend.ocr.ocr_engine import (
@@ -51,7 +52,7 @@ class GsiProvider(MatchDataProvider):
 
 
 class OcrSoulsTracker(MatchDataProvider):
-    """VAC-safe scoreboard OCR & item icon tracker triggered on TAB or static frames."""
+    """VAC-safe scoreboard OCR & item icon tracker with dead/spectator POV protection."""
 
     def __init__(
         self,
@@ -69,10 +70,12 @@ class OcrSoulsTracker(MatchDataProvider):
         self._capture = ScreenCapture(monitor_index=self.settings.monitor_index)
         self._last_valid_souls: dict[int, int] = {}
         self._last_update_ts: dict[int, float] = {}
+        self._pending_lower: dict[int, tuple[int, int]] = {}
         self._last_valid_minutes: float | None = None
         self._locked_heroes: dict[int, str] = {}
         self._locked_player_names: dict[int, str] = {}
         self._locked_self_slot: int | None = None
+        self._last_own_items: list[str] = []
 
     @property
     def ocr_backend(self) -> OcrBackend:
@@ -93,22 +96,35 @@ class OcrSoulsTracker(MatchDataProvider):
         return self._item_matcher
 
     def reset_match(self) -> None:
-        """Clear monotonic history and locked hero/self slots for a new match."""
+        """Clear monotonic history, locked heroes/self slot, and protected inventory cache."""
         self._last_valid_souls.clear()
         self._last_update_ts.clear()
+        self._pending_lower.clear()
         self._last_valid_minutes = None
         self._locked_heroes.clear()
         self._locked_player_names.clear()
         self._locked_self_slot = None
+        self._last_own_items.clear()
 
     def apply_monotonic_filter(
         self,
         slot_index: int,
         candidate_souls: int | None,
         now: float | None = None,
+        match_minutes: float | None = None,
+        lobby_median: float | None = None,
     ) -> int | None:
-        """Reject OCR misreads that cause impossible drops or single-frame spikes."""
+        """Reject impossible spikes/drops while allowing 2-frame recovery if a lower value persists."""
         if candidate_souls is None:
+            return self._last_valid_souls.get(slot_index)
+
+        # Economic ceiling: prevent OCR spikes like 85k at 23 min or >2.5x lobby median
+        if match_minutes is not None and match_minutes > 0:
+            max_by_time = max(7_500, int(match_minutes * 2_200 + 4_000))
+            if candidate_souls > max_by_time:
+                return self._last_valid_souls.get(slot_index)
+
+        if lobby_median is not None and lobby_median >= 5_000 and candidate_souls > int(lobby_median * 2.5):
             return self._last_valid_souls.get(slot_index)
 
         ts = now if now is not None else time.monotonic()
@@ -116,13 +132,27 @@ class OcrSoulsTracker(MatchDataProvider):
         if prev is None:
             self._last_valid_souls[slot_index] = candidate_souls
             self._last_update_ts[slot_index] = ts
+            self._pending_lower.pop(slot_index, None)
             return candidate_souls
 
         if candidate_souls < prev:
+            # Reject single-frame drops, but self-heal after 2 consecutive consistent lower frames
+            pending = self._pending_lower.get(slot_index)
+            if pending is not None and abs(candidate_souls - pending[0]) <= 2_500:
+                count = pending[1] + 1
+                if count >= 2:
+                    self._last_valid_souls[slot_index] = candidate_souls
+                    self._last_update_ts[slot_index] = ts
+                    self._pending_lower.pop(slot_index, None)
+                    return candidate_souls
+                self._pending_lower[slot_index] = (candidate_souls, count)
+            else:
+                self._pending_lower[slot_index] = (candidate_souls, 1)
             return prev
 
+        self._pending_lower.pop(slot_index, None)
         elapsed = max(0.1, ts - self._last_update_ts.get(slot_index, ts))
-        allowed_jump = self.settings.max_souls_jump_per_5s * max(1.0, elapsed / 5.0)
+        allowed_jump = min(18_000, max(3_500, int(elapsed * 180)))
         if (candidate_souls - prev) > allowed_jump:
             return prev
 
@@ -148,6 +178,56 @@ class OcrSoulsTracker(MatchDataProvider):
         crop = frame_bgr[ly : ly + ph, lx : lx + pw]
         processed = preprocess_souls_roi(crop)
         return self.ocr_backend.recognize_text(processed), (lx, ly, pw, ph)
+
+    @staticmethod
+    def detect_team_sides(
+        frame_bgr: np.ndarray,
+        frame_origin: tuple[int, int] = (0, 0),
+        full_screen_size: tuple[int, int] | None = None,
+    ) -> tuple[Team, Team]:
+        """Detect whether left slots (0..5) are Sapphire Flame or Amber Hand via banner color."""
+        fh, fw = frame_bgr.shape[:2]
+        screen_w, screen_h = full_screen_size or (fw, fh)
+        ox, oy = frame_origin
+
+        left_roi = NormalizedRoi(x=0.445, y=0.040, w=0.042, h=0.032)
+        px, py, pw, ph = scale_roi(left_roi, screen_w, screen_h)
+        lx, ly = px - ox, py - oy
+        if lx >= 0 and ly >= 0 and lx + pw <= fw and ly + ph <= fh:
+            patch = frame_bgr[ly : ly + ph, lx : lx + pw]
+            mean_bgr = patch.mean(axis=(0, 1))
+            if float(mean_bgr[0]) > float(mean_bgr[2]) + 20.0:
+                return Team.SAPPHIRE_FLAME, Team.AMBER_HAND
+        return Team.AMBER_HAND, Team.SAPPHIRE_FLAME
+
+    @staticmethod
+    def is_slot_dead(
+        frame_bgr: np.ndarray,
+        player_cfg: PlayerRoiConfig,
+        frame_origin: tuple[int, int] = (0, 0),
+        full_screen_size: tuple[int, int] | None = None,
+    ) -> bool:
+        """Detect whether a player portrait displays the darkened state + red respawn timer."""
+        fh, fw = frame_bgr.shape[:2]
+        screen_w, screen_h = full_screen_size or (fw, fh)
+        ox, oy = frame_origin
+        portrait_roi = NormalizedRoi(
+            x=player_cfg.souls_roi.x,
+            y=0.020,
+            w=player_cfg.souls_roi.w,
+            h=0.055,
+        )
+        px, py, pw, ph = scale_roi(portrait_roi, screen_w, screen_h)
+        lx, ly = px - ox, py - oy
+        if lx < 0 or ly < 0 or lx + pw > fw or ly + ph > fh:
+            return False
+
+        crop = frame_bgr[ly : ly + ph, lx : lx + pw]
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        red_mask = ((hsv[:, :, 0] <= 14) | (hsv[:, :, 0] >= 166)) & (hsv[:, :, 1] > 140) & (hsv[:, :, 2] > 140)
+        red_ratio = float(red_mask.mean())
+        mean_val = float(hsv[:, :, 2].mean())
+        return red_ratio >= 0.08 and mean_val < 118.0
 
     def extract_match_timer(
         self,
@@ -276,7 +356,6 @@ class OcrSoulsTracker(MatchDataProvider):
             raw_candidates[player_cfg.slot_index] = parsed
             debug_crops[player_cfg.slot_index] = ((lx, ly, pw, ph), processed, player_cfg.team.value)
 
-        # Late-game 2-digit missing-'k' inference (e.g. '30' -> 30000 when lobby is >= 4k or >= 4 min)
         known_vals = [v for v in raw_candidates.values() if v is not None]
         known_vals.extend(self._last_valid_souls.values())
         max_known = max(known_vals, default=0)
@@ -286,9 +365,18 @@ class OcrSoulsTracker(MatchDataProvider):
                 if val is not None and 10 <= val <= 99:
                     raw_candidates[slot] = val * 1000
 
+        median_pool = [v for v in raw_candidates.values() if v is not None and v >= 500]
+        lobby_median = float(statistics.median(median_pool)) if len(median_pool) >= 4 else None
+
         results: dict[int, int] = {}
         for slot, candidate in raw_candidates.items():
-            filtered = self.apply_monotonic_filter(slot, candidate, now=now)
+            filtered = self.apply_monotonic_filter(
+                slot,
+                candidate,
+                now=now,
+                match_minutes=match_minutes_hint,
+                lobby_median=lobby_median,
+            )
             if filtered is not None:
                 results[slot] = filtered
 
@@ -321,10 +409,11 @@ class OcrSoulsTracker(MatchDataProvider):
         dump_debug_dir: Path | None = None,
         now: float | None = None,
     ) -> MatchState:
-        """Extract souls, timer, skin-proof hero names, items, and `is_self` into a MatchState."""
+        """Extract souls, timer, team sides, dead-state, heroes, items, and `is_self`."""
         fh, fw = frame_bgr.shape[:2]
         screen_size = full_screen_size or (fw, fh)
 
+        left_team, right_team = self.detect_team_sides(frame_bgr, frame_origin, screen_size)
         _, match_minutes = self.extract_match_timer(frame_bgr, frame_origin, screen_size)
         souls_by_slot = self.extract_from_frame(
             frame_bgr=frame_bgr,
@@ -359,23 +448,47 @@ class OcrSoulsTracker(MatchDataProvider):
         if player_pseudo and self._locked_self_slot is None:
             self._locked_self_slot = match_player_pseudo(player_pseudo, self._locked_player_names)
 
+        self_is_dead = False
+        if self._locked_self_slot is not None:
+            self_cfg = next((p for p in self.roi_config.players if p.slot_index == self._locked_self_slot), None)
+            if self_cfg is not None:
+                self_is_dead = self.is_slot_dead(frame_bgr, self_cfg, frame_origin, screen_size)
+
+        # Protect own inventory when dead / spectating another player's POV
         has_full_bottom_hud = frame_origin == (0, 0) and fh >= int(screen_size[1] * 0.95)
-        own_inv_matches = (
-            self.extract_own_inventory(frame_bgr, full_screen_size=screen_size)
-            if has_full_bottom_hud
-            else []
-        )
-        own_inv_names: list[str] = []
-        seen_own: set[str] = set()
-        for _, item_name, _, _ in own_inv_matches:
-            if item_name not in seen_own:
-                seen_own.add(item_name)
-                own_inv_names.append(item_name)
+        own_inv_matches: list[tuple[int, str, float, tuple[int, int, int, int]]] = []
+        if has_full_bottom_hud and not self_is_dead:
+            own_inv_matches = self.extract_own_inventory(frame_bgr, full_screen_size=screen_size)
+            scanned_names: list[str] = []
+            seen_own: set[str] = set()
+            for _, item_name, _, _ in own_inv_matches:
+                if item_name not in seen_own:
+                    seen_own.add(item_name)
+                    scanned_names.append(item_name)
+
+            # Sudden-Swap Guard: if >=4 items were previously known and <40% overlap remains,
+            # assume spectator camera transition and retain previous alive inventory.
+            if len(self._last_own_items) >= 4 and scanned_names:
+                overlap = len(set(self._last_own_items) & set(scanned_names))
+                if overlap / len(self._last_own_items) < 0.40:
+                    own_inv_names = list(self._last_own_items)
+                else:
+                    own_inv_names = scanned_names
+                    self._last_own_items = scanned_names
+            elif scanned_names:
+                own_inv_names = scanned_names
+                self._last_own_items = scanned_names
+            else:
+                own_inv_names = list(self._last_own_items)
+        else:
+            own_inv_names = list(self._last_own_items)
 
         players: list[PlayerState] = []
         for player_cfg in self.roi_config.players:
             slot = player_cfg.slot_index
             is_self = slot == self._locked_self_slot
+            actual_team = left_team if slot < 6 else right_team
+
             if is_self and own_inv_names:
                 items = own_inv_names
             else:
@@ -385,11 +498,13 @@ class OcrSoulsTracker(MatchDataProvider):
                     frame_origin=frame_origin,
                     full_screen_size=screen_size,
                 )
+                if is_self and items and not self._last_own_items:
+                    self._last_own_items = list(items)
 
             players.append(
                 PlayerState(
                     slot_index=slot,
-                    team=player_cfg.team,
+                    team=actual_team,
                     hero_name=self._locked_heroes.get(slot, f"Unknown_{slot:02d}"),
                     souls=souls_by_slot.get(slot, 0),
                     items=items,
@@ -414,7 +529,7 @@ class OcrSoulsTracker(MatchDataProvider):
                         cv2.rectangle(overlay, (hx, hy), (hx + hw, hy + hh), (200, 140, 255), 1)
                         label = self._locked_heroes.get(slot, "?")
                         if is_self:
-                            label = f"[TOI] {label}"
+                            label = f"[TOI{' MORT' if self_is_dead else ''}] {label}"
                         cv2.putText(overlay, label, (hx, hy + hh + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.36, box_color, 1, cv2.LINE_AA)
                 for idx, item_name, score, (ix, iy, iw, ih) in own_inv_matches:
                     cv2.rectangle(overlay, (ix, iy), (ix + iw, iy + ih), (80, 255, 80), 2)
@@ -425,6 +540,7 @@ class OcrSoulsTracker(MatchDataProvider):
             timestamp=time.time(),
             match_minutes=match_minutes if match_minutes is not None else 0.0,
             players=players,
+            self_is_dead=self_is_dead,
         )
 
     def poll_souls(self, dump_debug_dir: Path | None = None) -> dict[int, int]:
