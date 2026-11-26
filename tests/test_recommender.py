@@ -211,3 +211,52 @@ def test_build_balance_sustain_gap_and_top_priority_diversity() -> None:
     assert len(pure_def) <= 2
     assert any(r.category in {"Weapon", "Spirit"} for r in top_prio)
     assert any(r.item_name in {"Fortitude", "Healbane"} for r in top_prio)
+
+
+def test_rank_all_items_scores_and_breakdown() -> None:
+    upgrade_graph = {
+        "upgrades_from": {
+            "sharpshooter": [{"name": "Long Range", "cost": 1600, "category": "Weapon", "tier": 2}],
+        },
+        "upgrades_into": {
+            "long range": [{"name": "Sharpshooter", "cost": 3200, "category": "Weapon", "tier": 3}],
+        },
+        "ancestors": {},
+    }
+    catalog = [
+        {"name": "Long Range", "category": "Weapon", "cost": 1600, "tier": 2},
+        {"name": "Sharpshooter", "category": "Weapon", "cost": 3200, "tier": 3},
+        {"name": "Spellbreaker", "category": "Vitality", "cost": 6400, "tier": 4},
+        {"name": "Extended Magazine", "category": "Weapon", "cost": 800, "tier": 1},
+    ]
+    match = MatchState(
+        timestamp=600.0,
+        match_minutes=25.0,
+        players=[
+            _make_player(0, Team.SAPPHIRE_FLAME, "Vindicta", 24_000, items=["Long Range"], lane_id=1, is_self=True),
+            _make_player(6, Team.AMBER_HAND, "Seven", 31_000, lane_id=1),
+            _make_player(7, Team.AMBER_HAND, "Pocket", 29_000, lane_id=2),
+            _make_player(8, Team.AMBER_HAND, "Bebop", 28_000, lane_id=2),
+        ],
+    )
+    core_build = [
+        {"item_name": "Sharpshooter", "category": "Weapon", "cost": 3200, "tier": 3},
+    ]
+
+    engine = RecommendationEngine()
+    ranked = engine.rank_all_items(
+        match,
+        catalog=catalog,
+        default_core_build=core_build,
+        upgrade_graph=upgrade_graph,
+    )
+    assert len(ranked) == len(catalog)
+    scores = [item["score_pct"] for item in ranked]
+    assert scores == sorted(scores, reverse=True)
+    assert all(1 <= s <= 99 for s in scores)
+    for item in ranked:
+        assert set(item["breakdown"].keys()) == {"meta", "counter", "upgrade", "balance", "phase"}
+
+    by_name = {i["item_name"]: i for i in ranked}
+    assert by_name["Sharpshooter"]["upgrade_status"] == "upgrade_ready"
+    assert by_name["Sharpshooter"]["score_pct"] > by_name["Extended Magazine"]["score_pct"]

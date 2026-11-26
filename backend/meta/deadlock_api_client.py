@@ -117,6 +117,35 @@ class DeadlockApiClient:
             if item.get("name")
         }
 
+    def get_shop_catalog(self, ttl_seconds: int = 86_400) -> list[dict[str, Any]]:
+        """Return deduplicated list of all shopable Deadlock upgrade items with metadata."""
+        slot_to_cat = {"weapon": "Weapon", "vitality": "Vitality", "spirit": "Spirit"}
+        try:
+            shop_items = self.get_shop_items(ttl_seconds=ttl_seconds)
+        except Exception:
+            return []
+
+        seen_lower: set[str] = set()
+        catalog: list[dict[str, Any]] = []
+        for item in shop_items:
+            if not item.get("shopable", True) or not item.get("name"):
+                continue
+            if not (item.get("shop_image") or item.get("image")):
+                continue
+            name = str(item["name"]).strip()
+            key = name.lower()
+            if key in seen_lower:
+                continue
+            seen_lower.add(key)
+            slot_type = str(item.get("item_slot_type", "weapon")).lower()
+            catalog.append({
+                "name": name,
+                "category": slot_to_cat.get(slot_type, "Core"),
+                "cost": int(item.get("cost") or 0),
+                "tier": int(item.get("item_tier") or 1),
+            })
+        return catalog
+
     def get_hero_id(self, hero_name: str) -> int | None:
         """Resolve a canonical hero name (e.g. 'Vindicta') to its Deadlock hero_id."""
         target = hero_name.strip().lower()

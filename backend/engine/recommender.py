@@ -717,3 +717,198 @@ class RecommendationEngine:
         # 5. Balanced Top Priority section
         top_priority_recs = self._build_top_priority(recommendations, len(owned_display_by_lower), balance)
         return top_priority_recs + recommendations
+
+    def rank_all_items(
+        self,
+        match: MatchState,
+        catalog: list[dict[str, Any]],
+        default_core_build: list[dict[str, str | int]] | list[str] | None = None,
+        upgrade_graph: dict[str, Any] | None = None,
+        lane_opponent_heroes: list[str] | None = None,
+        item_categories: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Score every shopable item in Deadlock from 1-99% with a transparent breakdown."""
+        me = match.self_player
+        if me is None or not catalog:
+            return []
+
+        balance = self.analyze_build_balance(match, item_categories=item_categories)
+        owned_display_by_lower = {i.strip().lower(): i.strip() for i in me.items if i.strip()}
+        owned_keys = set(owned_display_by_lower.keys())
+        snowball_reports = self.compute_snowball_reports(match)
+        snowball_by_hero = {r.hero_name: r for r in snowball_reports}
+        lane_status, lane_diff, lane_opponents = self.evaluate_lane_status(
+            match, lane_opponent_heroes=lane_opponent_heroes
+        )
+
+        global_weights, global_heroes = self._collect_threat_weights(match.enemies, snowball_by_hero)
+        lane_weights, lane_heroes = self._collect_threat_weights(lane_opponents, snowball_by_hero)
+
+        core_rank: dict[str, int] = {}
+        for idx, entry in enumerate(default_core_build or []):
+            cname = (entry if isinstance(entry, str) else str(entry["item_name"])).strip().lower()
+            if cname not in core_rank:
+                core_rank[cname] = idx
+
+        counter_rule_by_name = {
+            rule["item_name"].strip().lower(): rule
+            for rule in self.rules.get("counter_items", [])
+        }
+        lane_def_names = {i["item_name"].strip().lower() for i in self.rules.get("lane_defensive_items", [])}
+        lane_snow_names = {i["item_name"].strip().lower() for i in self.rules.get("lane_snowball_items", [])}
+
+        has_spirit_res = bool(owned_keys & SPIRIT_RESIST_ITEMS)
+        has_bullet_res = bool(owned_keys & BULLET_RESIST_ITEMS)
+        has_cc_def = bool(owned_keys & CC_DEFENSE_ITEMS)
+        has_anti_heal = bool(owned_keys & ANTI_HEAL_ITEMS)
+
+        my_tags = set(self.hero_tags.get(me.hero_name, []))
+        is_early = match.match_minutes < 10.0 and me.souls < 8_000
+        is_late = match.match_minutes >= 22.0 or me.souls >= 22_000 or len(owned_keys) >= 8
+
+        ranked: list[dict[str, Any]] = []
+        for entry in catalog:
+            name = str(entry["name"])
+            key = name.strip().lower()
+            category = str(entry.get("category", "Core"))
+            cost = int(entry.get("cost") or 0)
+            tier = int(entry.get("tier") or (1 if cost <= 800 else (2 if cost <= 1600 else (3 if cost <= 3200 else 4))))
+
+            status, comp_name, net_cost = self._resolve_upgrade_status(
+                name, cost, owned_display_by_lower, upgrade_graph
+            )
+            already_owned = status in {"owned", "evolved"}
+
+            # 1. Meta score (0..30)
+            meta_score = 0
+            if key in core_rank:
+                idx = core_rank[key]
+                meta_score = max(10, 30 - idx)
+                if status == "upgrade_ready":
+                    meta_score = min(30, meta_score + 6)
+
+            # 2. Counter & lane score (-10..32)
+            counter_score = 0
+            target_heroes: list[str] = []
+            reasons_fr: list[str] = []
+            reasons_en: list[str] = []
+
+            rule = counter_rule_by_name.get(key)
+            if rule is not None:
+                tag = rule["counters_tag"]
+                gw = global_weights.get(tag, 0.0)
+                lw = lane_weights.get(tag, 0.0)
+                reports_for_tag = global_heroes.get(tag, [])
+                any_fed = any(r.is_fed for r in reports_for_tag)
+                if gw >= float(rule["min_threat_weight"]):
+                    counter_score += min(24, int(round(gw * (7.5 if any_fed else 5.5))))
+                    target_heroes = [r.hero_name for r in reports_for_tag]
+                    h_fr = _format_hero_list(reports_for_tag, english=False)
+                    h_en = _format_hero_list(reports_for_tag, english=True)
+                    reasons_fr.append(f"Contre {h_fr}")
+                    reasons_en.append(f"Vs {h_en}")
+                if lw >= 1.0:
+                    counter_score += 8
+                # Anti-redundancy penalty
+                if (
+                    (tag == "spirit" and has_spirit_res and not any_fed)
+                    or (tag == "bullet_carry" and has_bullet_res and not any_fed)
+                    or (tag == "cc" and has_cc_def and not any_fed)
+                    or (tag == "lifesteal" and has_anti_heal)
+                ):
+                    counter_score -= 10
+                    reasons_fr.append("résist/anti-heal similaire déjà acquis")
+                    reasons_en.append("similar resist/anti-heal owned")
+
+            if match.match_minutes < 14.0 and lane_opponents:
+                if lane_status == LaneStatus.BEHIND and key in lane_def_names:
+                    counter_score += 18
+                    reasons_fr.append(f"tenue de lane (-{_format_souls(abs(lane_diff))})")
+                    reasons_en.append(f"lane sustain (-{_format_souls_en(abs(lane_diff))})")
+                elif lane_status == LaneStatus.SNOWBALLING and key in lane_snow_names:
+                    counter_score += 16
+                    reasons_fr.append(f"snowball lane (+{_format_souls(lane_diff)})")
+                    reasons_en.append(f"lane snowball (+{_format_souls_en(lane_diff)})")
+
+            counter_score = max(-10, min(32, counter_score))
+
+            # 3. Upgrade & slot efficiency (-8..24)
+            upgrade_score = 0
+            if status == "upgrade_ready" and comp_name:
+                upgrade_score = 24 if len(owned_keys) >= 9 else 16
+                reasons_fr.append(f"améliore {comp_name} (0 slot)")
+                reasons_en.append(f"upgrades {comp_name} (0 slot)")
+            elif status == "new" and len(owned_keys) >= 11:
+                upgrade_score = -8
+
+            # 4. Build balance & hero synergy (-6..18)
+            balance_score = 0
+            if balance.needs_sustain and key in SUSTAIN_ITEMS:
+                balance_score += 18
+                reasons_fr.append("comble le manque de sustain")
+                reasons_en.append("fills missing sustain")
+            elif balance.needs_damage and category in {"Weapon", "Spirit"}:
+                balance_score += 15
+                reasons_fr.append("apporte des dégâts")
+                reasons_en.append("adds needed damage")
+            elif balance.needs_damage and category == "Vitality" and key not in SUSTAIN_ITEMS:
+                balance_score -= 6
+            elif balance.needs_defense and category == "Vitality":
+                balance_score += 12
+                reasons_fr.append("renforce la survie")
+                reasons_en.append("adds survivability")
+
+            if ("bullet_carry" in my_tags and category == "Weapon") or ("spirit" in my_tags and category == "Spirit"):
+                balance_score += 5
+            balance_score = max(-6, min(18, balance_score))
+
+            # 5. Game phase fit (-12..12)
+            if is_early:
+                phase_map = {1: 12, 2: 8, 3: -4, 4: -12}
+            elif is_late:
+                phase_map = {1: -12, 2: -2, 3: 8, 4: 12}
+            else:
+                phase_map = {1: -8, 2: 6, 3: 12, 4: 4}
+            phase_score = phase_map.get(tier, 0)
+
+            if key in core_rank and not reasons_fr:
+                reasons_fr.append(f"Core {me.hero_name} #{core_rank[key] + 1}")
+                reasons_en.append(f"Core {me.hero_name} #{core_rank[key] + 1}")
+
+            if status == "owned":
+                reasons_fr = ["Déjà équipé dans ton inventaire"]
+                reasons_en = ["Already equipped in inventory"]
+            elif status == "evolved":
+                reasons_fr = ["Déjà évolué vers un palier supérieur"]
+                reasons_en = ["Already evolved to higher tier"]
+            elif not reasons_fr:
+                reasons_fr.append(f"Option {category} T{tier}")
+                reasons_en.append(f"T{tier} {category} option")
+
+            raw = 18 + meta_score + counter_score + upgrade_score + balance_score + phase_score
+            score_pct = max(1, min(99, int(round(raw))))
+
+            ranked.append({
+                "item_name": name,
+                "category": category,
+                "tier": tier,
+                "cost": cost,
+                "net_cost": net_cost,
+                "score_pct": score_pct,
+                "upgrade_status": status,
+                "upgrades_from_owned": comp_name,
+                "already_owned": already_owned,
+                "target_heroes": target_heroes,
+                "reason": " • ".join(reasons_fr),
+                "reason_en": " • ".join(reasons_en),
+                "breakdown": {
+                    "meta": meta_score,
+                    "counter": counter_score,
+                    "upgrade": upgrade_score,
+                    "balance": balance_score,
+                    "phase": phase_score,
+                },
+            })
+
+        ranked.sort(key=lambda item: (-item["score_pct"], item["net_cost"], item["item_name"]))
+        return ranked

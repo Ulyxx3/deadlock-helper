@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import type {
+  AllItemsResponse,
   CompanionSnapshot,
   ItemRecommendation,
+  RankedShopItem,
   RecommendationSectionName,
   UiLang,
 } from "./types";
@@ -40,6 +42,22 @@ const UI_TEXT: Record<
     balanceDamageWarn: string;
     balanceSustainWarn: string;
     balanceDefenseWarn: string;
+    allItemsBtn: string;
+    modalTitle: string;
+    modalSub: string;
+    searchPlaceholder: string;
+    allFilter: string;
+    hideOwned: string;
+    upgradesOnly: string;
+    loadingAllItems: string;
+    noMatchingItems: string;
+    bdLabels: {
+      meta: string;
+      counter: string;
+      upgrade: string;
+      balance: string;
+      phase: string;
+    };
     emptySection: string;
     sections: Record<RecommendationSectionName, string>;
   }
@@ -76,6 +94,22 @@ const UI_TEXT: Record<
     balanceDamageWarn: "Manque de dégâts",
     balanceSustainWarn: "Manque de soin / sustain",
     balanceDefenseWarn: "Aucune défense Vitality",
+    allItemsBtn: "📊 Tous les items (%)",
+    modalTitle: "Classement complet des items",
+    modalSub: "items analysés selon ta partie",
+    searchPlaceholder: "Rechercher un item...",
+    allFilter: "Tous",
+    hideOwned: "Masquer achetés",
+    upgradesOnly: "⬆ Améliorations",
+    loadingAllItems: "Calcul des scores...",
+    noMatchingItems: "Aucun item ne correspond aux filtres.",
+    bdLabels: {
+      meta: "Méta",
+      counter: "Contre",
+      upgrade: "Amélio",
+      balance: "Équilibre",
+      phase: "Phase",
+    },
     emptySection: "Aucune alerte prioritaire.",
     sections: {
       "Priorité absolue": "Priorité absolue",
@@ -117,6 +151,22 @@ const UI_TEXT: Record<
     balanceDamageWarn: "Low damage items",
     balanceSustainWarn: "Missing healing / sustain",
     balanceDefenseWarn: "No Vitality defense",
+    allItemsBtn: "📊 All Items (%)",
+    modalTitle: "Full Shop Item Ranking",
+    modalSub: "items scored for this match",
+    searchPlaceholder: "Search item...",
+    allFilter: "All",
+    hideOwned: "Hide owned",
+    upgradesOnly: "⬆ Upgrades only",
+    loadingAllItems: "Scoring all items...",
+    noMatchingItems: "No items match current filters.",
+    bdLabels: {
+      meta: "Meta",
+      counter: "Counter",
+      upgrade: "Upgrade",
+      balance: "Balance",
+      phase: "Phase",
+    },
     emptySection: "No urgent counter needed.",
     sections: {
       "Priorité absolue": "Top Priority",
@@ -216,6 +266,200 @@ function ItemCard({
   );
 }
 
+function AllItemsModal({
+  data,
+  loading,
+  lang,
+  t,
+  onClose,
+}: {
+  data: AllItemsResponse | null;
+  loading: boolean;
+  lang: UiLang;
+  t: (typeof UI_TEXT)["fr"];
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [catFilter, setCatFilter] = useState<"ALL" | "Weapon" | "Vitality" | "Spirit">("ALL");
+  const [tierFilter, setTierFilter] = useState<number>(0);
+  const [hideOwned, setHideOwned] = useState(false);
+  const [upgradesOnly, setUpgradesOnly] = useState(false);
+
+  const items: RankedShopItem[] = data?.items ?? [];
+  const q = search.trim().toLowerCase();
+  const filtered = items.filter((item) => {
+    if (catFilter !== "ALL" && item.category !== catFilter) return false;
+    if (tierFilter !== 0 && item.tier !== tierFilter) return false;
+    if (hideOwned && item.already_owned) return false;
+    if (upgradesOnly && item.upgrade_status !== "upgrade_ready") return false;
+    if (q) {
+      const en = item.item_name.toLowerCase();
+      const fr = (item.item_name_fr || "").toLowerCase();
+      if (!en.includes(q) && !fr.includes(q)) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title-group">
+            <h2>{t.modalTitle}</h2>
+            <span className="modal-sub">
+              {filtered.length}/{items.length} {t.modalSub}
+              {data?.match_timer_display ? ` • ${data.match_timer_display}` : ""}
+            </span>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        <div className="modal-filters">
+          <input
+            type="text"
+            className="modal-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t.searchPlaceholder}
+          />
+
+          <div className="filter-group">
+            {(["ALL", "Weapon", "Vitality", "Spirit"] as const).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`filter-pill ${catFilter === cat ? "active" : ""}`}
+                onClick={() => setCatFilter(cat)}
+              >
+                {cat === "ALL" ? t.allFilter : cat}
+              </button>
+            ))}
+          </div>
+
+          <div className="filter-group">
+            {[0, 1, 2, 3, 4].map((tier) => (
+              <button
+                key={tier}
+                type="button"
+                className={`filter-pill ${tierFilter === tier ? "active" : ""}`}
+                onClick={() => setTierFilter(tier)}
+              >
+                {tier === 0 ? t.allFilter : `T${tier}`}
+              </button>
+            ))}
+          </div>
+
+          <label className="toggle-check">
+            <input
+              type="checkbox"
+              checked={hideOwned}
+              onChange={(e) => setHideOwned(e.target.checked)}
+            />
+            <span>{t.hideOwned}</span>
+          </label>
+
+          <label className="toggle-check">
+            <input
+              type="checkbox"
+              checked={upgradesOnly}
+              onChange={(e) => setUpgradesOnly(e.target.checked)}
+            />
+            <span>{t.upgradesOnly}</span>
+          </label>
+        </div>
+
+        <div className="ranked-list">
+          {loading && items.length === 0 ? (
+            <p className="empty-note">{t.loadingAllItems}</p>
+          ) : filtered.length === 0 ? (
+            <p className="empty-note">{t.noMatchingItems}</p>
+          ) : (
+            filtered.map((item, idx) => {
+              const displayName =
+                lang === "fr" ? item.item_name_fr || item.item_name : item.item_name;
+              const displayReason =
+                lang === "fr" ? item.reason : item.reason_en || item.reason;
+              const pctClass =
+                item.score_pct >= 75 ? "high" : item.score_pct >= 50 ? "mid" : "low";
+              const bdEntries = (
+                [
+                  ["meta", item.breakdown.meta],
+                  ["counter", item.breakdown.counter],
+                  ["upgrade", item.breakdown.upgrade],
+                  ["balance", item.breakdown.balance],
+                  ["phase", item.breakdown.phase],
+                ] as const
+              ).filter(([, val]) => val !== 0);
+
+              return (
+                <div
+                  key={item.item_name}
+                  className={`ranked-row ${categoryClass(item.category)} ${
+                    item.already_owned ? "is-owned" : ""
+                  }`}
+                >
+                  <span className="rank-num">#{idx + 1}</span>
+                  <div className="item-icon-wrap">
+                    {item.icon_url ? (
+                      <img
+                        src={item.icon_url}
+                        alt={displayName}
+                        className="item-icon"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="item-icon-fallback">{displayName.slice(0, 2)}</div>
+                    )}
+                  </div>
+
+                  <div className="ranked-main">
+                    <div className="ranked-top">
+                      <strong className="ranked-name">{displayName}</strong>
+                      <span className="tier-tag">T{item.tier}</span>
+                      {item.upgrade_status === "evolved" ? (
+                        <span className="owned-pill">{t.evolved}</span>
+                      ) : item.upgrade_status === "owned" ? (
+                        <span className="owned-pill">{t.owned}</span>
+                      ) : item.upgrade_status === "upgrade_ready" ? (
+                        <>
+                          <span className="upgrade-pill">{t.upgrade}</span>
+                          <span className="cost-pill">{formatNumber(item.net_cost, lang)}</span>
+                        </>
+                      ) : (
+                        <span className="cost-pill">{formatNumber(item.cost, lang)}</span>
+                      )}
+                    </div>
+                    <p className="ranked-reason">{displayReason}</p>
+                    <div className="breakdown-pills">
+                      {bdEntries.map(([key, val]) => (
+                        <span key={key} className={`bd-pill ${val < 0 ? "neg" : ""}`}>
+                          {t.bdLabels[key]} {val > 0 ? `+${val}` : val}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="ranked-score-col">
+                    <span className={`pct-value ${pctClass}`}>{item.score_pct}%</span>
+                    <div className="pct-bar-track">
+                      <div
+                        className="pct-bar-fill"
+                        style={{ width: `${item.score_pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<CompanionSnapshot | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
@@ -223,6 +467,9 @@ export default function App() {
   const [compactMode, setCompactMode] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showAllItemsModal, setShowAllItemsModal] = useState(false);
+  const [allItemsData, setAllItemsData] = useState<AllItemsResponse | null>(null);
+  const [allItemsLoading, setAllItemsLoading] = useState(false);
   const [lang, setLang] = useState<UiLang>(() => {
     const saved = window.localStorage.getItem("deadlock_helper_lang");
     return saved === "en" ? "en" : "fr";
@@ -288,6 +535,32 @@ export default function App() {
       socket?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!showAllItemsModal) return;
+    let active = true;
+    const fetchAll = async () => {
+      setAllItemsLoading(true);
+      try {
+        const res = await fetch("/api/all-items");
+        if (res.ok && active) {
+          setAllItemsData(await res.json());
+        }
+      } finally {
+        if (active) setAllItemsLoading(false);
+      }
+    };
+    void fetchAll();
+
+    const onKeyDown = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") setShowAllItemsModal(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      active = false;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showAllItemsModal, snapshot?.updated_at]);
 
   const handleSavePseudo = async (e: FormEvent) => {
     e.preventDefault();
@@ -405,6 +678,13 @@ export default function App() {
             disabled={busyAction !== null}
           >
             {busyAction === "image" ? t.analyzing : t.testImage}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAllItemsModal(true)}
+            disabled={!snapshot || snapshot.status !== "ready"}
+          >
+            {t.allItemsBtn}
           </button>
           <button
             type="button"
@@ -620,6 +900,16 @@ export default function App() {
             })}
           </section>
         </main>
+      )}
+
+      {showAllItemsModal && (
+        <AllItemsModal
+          data={allItemsData}
+          loading={allItemsLoading}
+          lang={lang}
+          t={t}
+          onClose={() => setShowAllItemsModal(false)}
+        />
       )}
     </div>
   );

@@ -263,6 +263,7 @@ class CompanionServerState:
         self.fr_names = self.api_client.get_item_names_fr()
         self.upgrade_graph = self.api_client.get_upgrade_graph()
         self.item_categories = self.api_client.get_item_categories()
+        self.shop_catalog = self.api_client.get_shop_catalog()
         self.tracker = OcrSoulsTracker(
             settings=self.settings,
             item_matcher=ItemMatcher(self.settings.item_icons_dir),
@@ -357,6 +358,47 @@ class CompanionServerState:
             self.latest_snapshot = self._build_current_snapshot(None, source="idle")
             return self.latest_snapshot
 
+    def get_all_items_ranking(self) -> dict[str, Any]:
+        """Compute full 1-99% ranking across every shopable Deadlock item."""
+        with self._lock:
+            match_state = self._last_match_state
+            pinned = list(self.pinned_lane_opponents)
+        if match_state is None or match_state.self_player is None:
+            return {"status": "waiting_for_tab", "total_items": 0, "items": []}
+
+        me = match_state.self_player
+        core_build = self.api_client.get_default_core_build(me.hero_name, max_items=24)
+        lane_arg = pinned if pinned else None
+        raw_items = self.engine.rank_all_items(
+            match_state,
+            catalog=self.shop_catalog,
+            default_core_build=core_build,
+            upgrade_graph=self.upgrade_graph,
+            lane_opponent_heroes=lane_arg,
+            item_categories=self.item_categories,
+        )
+        enriched: list[dict[str, Any]] = []
+        for entry in raw_items:
+            key = entry["item_name"].strip().lower()
+            from_name = entry.get("upgrades_from_owned")
+            from_fr = (
+                self.fr_names.get(from_name.strip().lower(), from_name)
+                if from_name
+                else None
+            )
+            enriched.append({
+                **entry,
+                "item_name_fr": self.fr_names.get(key, entry["item_name"]),
+                "upgrades_from_owned_fr": from_fr,
+                "icon_url": self.icon_lookup.get(key),
+            })
+        return {
+            "status": "ready",
+            "match_timer_display": _format_timer_display(match_state.match_minutes),
+            "total_items": len(enriched),
+            "items": enriched,
+        }
+
     def _handle_tab_capture(self) -> None:
         with self._lock:
             self._last_image_path = None
@@ -429,6 +471,10 @@ def create_app(
     @app.get("/api/state")
     async def get_state() -> dict[str, Any]:
         return state.latest_snapshot
+
+    @app.get("/api/all-items")
+    async def get_all_items() -> dict[str, Any]:
+        return state.get_all_items_ranking()
 
     @app.post("/api/player")
     async def update_player(payload: PlayerUpdateRequest) -> dict[str, Any]:

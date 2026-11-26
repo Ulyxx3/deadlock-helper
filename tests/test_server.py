@@ -87,3 +87,15 @@ def test_server_test_image_endpoint_on_real_screenshot(tmp_path: Path) -> None:
         pin_snap = pin_res.json()
         assert pin_snap["pinned_lane_opponents"] == ["Pocket", "Lady Geist"]
         assert len(pin_snap["sections"]["Matchup direct"]) >= 1
+
+        # All-items audit endpoint returns full catalog sorted by descending score_pct
+        all_res = client.get("/api/all-items")
+        assert all_res.status_code == 200
+        all_data = all_res.json()
+        assert all_data["status"] == "ready"
+        assert all_data["total_items"] >= 100
+        pcts = [item["score_pct"] for item in all_data["items"]]
+        assert pcts == sorted(pcts, reverse=True)
+        assert all_data["items"][0]["icon_url"].startswith("/icons/")
+        assert all_data["items"][0]["item_name_fr"]
+        assert set(all_data["items"][0]["breakdown"].keys()) == {"meta", "counter", "upgrade", "balance", "phase"}
